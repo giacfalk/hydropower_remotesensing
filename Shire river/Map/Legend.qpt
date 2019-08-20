@@ -1,0 +1,108 @@
+<Layout printResolution="300" name="Malawi" units="mm" worldFileMap="">
+ <Snapper snapToItems="1" tolerance="5" snapToGrid="0" snapToGuides="1"/>
+ <Grid resUnits="mm" offsetY="0" offsetX="0" offsetUnits="mm" resolution="10"/>
+ <PageCollection>
+  <symbol alpha="1" name="" clip_to_extent="1" type="fill">
+   <layer class="SimpleFill" locked="0" pass="0" enabled="1">
+    <prop k="border_width_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+    <prop k="color" v="255,255,255,255"/>
+    <prop k="joinstyle" v="miter"/>
+    <prop k="offset" v="0,0"/>
+    <prop k="offset_map_unit_scale" v="3x:0,0,0,0,0,0"/>
+    <prop k="offset_unit" v="MM"/>
+    <prop k="outline_color" v="35,35,35,255"/>
+    <prop k="outline_style" v="no"/>
+    <prop k="outline_width" v="0.26"/>
+    <prop k="outline_width_unit" v="MM"/>
+    <prop k="style" v="solid"/>
+    <data_defined_properties>
+     <Option type="Map">
+      <Option value="" name="name" type="QString"/>
+      <Option name="properties"/>
+      <Option value="collection" name="type" type="QString"/>
+     </Option>
+    </data_defined_properties>
+   </layer>
+  </symbol>
+  <LayoutItem type="65638" groupUuid="" positionLock="false" uuid="{39cfdd79-1765-4e7c-a8cc-df9f609cc1b8}" outlineWidthM="0.3,mm" opacity="1" frame="false" templateUuid="{39cfdd79-1765-4e7c-a8cc-df9f609cc1b8}" background="true" referencePoint="0" visibility="1" size="297,210,mm" blendMode="0" positionOnPage="0,0,mm" position="0,0,mm" zValue="0" id="" frameJoinStyle="miter" excludeFromExports="0" itemRotation="0">
+   <FrameColor alpha="255" green="0" blue="0" red="0"/>
+   <BackgroundColor alpha="255" green="255" blue="255" red="255"/>
+   <LayoutObject>
+    <dataDefinedProperties>
+     <Option type="Map">
+      <Option value="" name="name" type="QString"/>
+      <Option name="properties"/>
+      <Option value="collection" name="type" type="QString"/>
+     </Option>
+    </dataDefinedProperties>
+    <customproperties/>
+   </LayoutObject>
+  </LayoutItem>
+  <GuideCollection visible="1"/>
+ </PageCollection>
+ <LayoutItem rasterBorderWidth="0" templateUuid="{e598f0d5-ab9a-42b9-91c4-f2ba58861849}" background="true" wmsLegendHeight="25" resizeToContents="1" positionOnPage="52.8549,34.5215,mm" boxSpace="2" wrapChar="" size="47.8,71,mm" columnCount="1" legendFilterByAtlas="0" position="52.8549,34.5215,mm" id="" positionLock="false" frame="false" itemRotation="0" symbolWidth="7" groupUuid="" rasterBorderColor="0,0,0,255" symbolHeight="4" lineSpacing="1" visibility="1" wmsLegendWidth="50" blendMode="0" frameJoinStyle="miter" fontColor="#000000" excludeFromExports="0" outlineWidthM="0.3,mm" title="" opacity="1" splitLayer="0" uuid="{e598f0d5-ab9a-42b9-91c4-f2ba58861849}" zValue="1" referencePoint="0" equalColumnWidth="0" rasterBorder="1" titleAlignment="1" type="65642" columnSpace="2">
+  <FrameColor alpha="255" green="0" blue="0" red="0"/>
+  <BackgroundColor alpha="255" green="255" blue="255" red="255"/>
+  <LayoutObject>
+   <dataDefinedProperties>
+    <Option type="Map">
+     <Option value="" name="name" type="QString"/>
+     <Option name="properties"/>
+     <Option value="collection" name="type" type="QString"/>
+    </Option>
+   </dataDefinedProperties>
+   <customproperties/>
+  </LayoutObject>
+  <styles>
+   <style name="title" marginBottom="3.5">
+    <styleFont description="MS Shell Dlg 2,16,-1,5,50,0,0,0,0,0" style=""/>
+   </style>
+   <style name="group" marginTop="3">
+    <styleFont description="MS Shell Dlg 2,14,-1,5,50,0,0,0,0,0" style=""/>
+   </style>
+   <style name="subgroup" marginTop="3">
+    <styleFont description="MS Shell Dlg 2,12,-1,5,50,0,0,0,0,0" style=""/>
+   </style>
+   <style name="symbol" marginTop="2.5">
+    <styleFont description="MS Shell Dlg 2,8,-1,5,50,0,0,0,0,0" style=""/>
+   </style>
+   <style name="symbolLabel" marginTop="2" marginLeft="2">
+    <styleFont description="MS Shell Dlg 2,12,-1,5,50,0,0,0,0,0" style=""/>
+   </style>
+  </styles>
+  <layer-tree-group>
+   <customproperties/>
+   <layer-tree-layer source="./hydro plants.shp" providerKey="ogr" checked="Qt::Checked" name="hydro plants" expanded="1" id="hydro_plants_b926e8f6_acf7_4514_8746_fb81bc2305e3">
+    <customproperties>
+     <property value="Hydropower plants" key="legend/title-label"/>
+    </customproperties>
+   </layer-tree-layer>
+   <layer-tree-layer source="../Other data/GRDC/405basindata/GRDC_687_rivers.shp" providerKey="ogr" checked="Qt::Checked" name="GRDC_687_rivers" expanded="1" id="GRDC_687_rivers_a5fc729d_04c3_4a9f_8750_9275f341b78e">
+    <customproperties>
+     <property value="Rivers" key="legend/title-label"/>
+    </customproperties>
+   </layer-tree-layer>
+   <layer-tree-layer source="../Other data/GRDC/405basindata/GRDC_lakes_join_rivers.shp" providerKey="ogr" checked="Qt::Checked" name="GRDC_lakes_join_rivers" expanded="1" id="GRDC_lakes_join_rivers_58c2588d_7b03_4041_83f2_386dcfd56087">
+    <customproperties>
+     <property value="Basins" key="legend/title-label"/>
+    </customproperties>
+   </layer-tree-layer>
+   <layer-tree-layer source="C:/Users/GIACOMO/AppData/Local/Temp/processing_d6ab3cf5c60c4d1e9e5dd791d4a529ff/1d75c81822974bcaa71e3dcaf016cb4f/OUTPUT.tif" providerKey="gdal" checked="Qt::Checked" name="Ritagliato (da maschera)" expanded="0" id="OUTPUT_98974872_7994_4788_9b2b_3e5651cd387d">
+    <customproperties>
+     <property value="1000+" key="legend/label-4"/>
+     <property value="Pop. density" key="legend/title-label"/>
+    </customproperties>
+   </layer-tree-layer>
+   <custom-order enabled="0">
+    <item>GRDC_687_rivers_a5fc729d_04c3_4a9f_8750_9275f341b78e</item>
+    <item>GRDC_lakes_join_rivers_58c2588d_7b03_4041_83f2_386dcfd56087</item>
+    <item>OUTPUT_98974872_7994_4788_9b2b_3e5651cd387d</item>
+    <item>hydro_plants_b926e8f6_acf7_4514_8746_fb81bc2305e3</item>
+   </custom-order>
+  </layer-tree-group>
+ </LayoutItem>
+ <customproperties>
+  <property value="png" key="atlasRasterFormat"/>
+ </customproperties>
+ <Atlas filenamePattern="'output_'||@atlas_featurenumber" pageNameExpression="" coverageLayer="" hideCoverage="0" filterFeatures="0" sortFeatures="0" enabled="0"/>
+</Layout>

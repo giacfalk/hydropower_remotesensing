@@ -1,0 +1,1011 @@
+##R Script for: 
+##Monitoring climate impact on power reliability in Malawi using satellite data
+##Giacomo Falchetta
+## Version: 20/08/19
+#Any question should be addressed to giacomo.falchetta@feem.it
+
+##############
+#############
+
+##This script requires Python 3+, and a number of modules to be installed (reported in the readme.txt file)
+library(reticulate)
+
+#Set the Python directory and the conda environment
+use_python("C:\\OSGeo4W64\\apps\\Python37", required = T)
+
+#Load required libraries (or install them, previosuly)
+library(raster)
+library(margins)
+library(sf)
+library(eia)
+library(cowplot)
+library(ggsci)
+library(gridExtra)
+library(googledrive)
+library(RColorBrewer)
+library(jtools)
+library(tidyverse)
+library(foreign)
+library(frm)
+library(sandwich)
+library(lmtest)
+library(ggpmisc)
+library(estimatr)
+library(readr)
+library(splitstackshape)
+library(lfstat)
+library(wbstats)
+library(Amelia)
+library(padr)
+library(zoo)
+library(hydroGOF)
+library(imputeTS)
+library(hddtools)
+library(lfstat)
+library(ggplot2)
+library(plotly)
+library(reshape2)
+library(data.table)
+library(tidyverse)
+library(stargazer)
+library(lubridate)
+library(reshape2)
+library(readxl)
+library(fields)
+library(chron)
+library(ncdf4)
+library(raster)
+library(robustbase)
+library(rgdal)
+library(raster)
+Sys.setlocale("LC_TIME", "English")
+
+#Set the working directory
+setwd("C:/")
+
+#############
+#DATA INPUTTING AND WRANGLING#
+############
+
+#1) Lake Malawi: 10-day Status products with datum based on a 9 year (1993-2001) mean
+lakeslist<-c("0317")
+corresponding_lakename<-c("Lake Malawi")
+
+seg1<-"https://ipad.fas.usda.gov/lakes/images/lake"
+seg2<-".TPJOJ.2.smooth.txt"
+
+series_lakeheights<-paste(seg1, lakeslist, seg2, sep="")
+
+daily_fucntion <- function(X){ 
+  data.table::fread(X, skip = 11)
+} 
+
+import<-lapply(series_lakeheights, daily_fucntion)
+names(import)<-corresponding_lakename
+lake_levels <- rbindlist(import)
+setnames(lake_levels,names(lake_levels),c("yyyymmdd", "hh", "mm", "lakemalawi_level"))
+
+#Remove missing data and restructure dataframe
+lake_levels<-lake_levels[!(lake_levels$lakemalawi_level==999.99),]
+lake_levels<-data.frame(lake_levels$lakemalawi_level, substr(lake_levels$yyyymmdd, 1, 4), substr(lake_levels$yyyymmdd, 5, 6), substr(lake_levels$yyyymmdd, 7, 8))
+setnames(lake_levels,names(lake_levels),c("lakemalawi_level", "year", "month", "day"))
+lake_levels$date<-as.Date(paste(lake_levels$year, lake_levels$month, lake_levels$day, sep="-"))
+
+#Interpolate (linearly) 10-day lake level product to daily observations
+lake_levels <- dplyr::select(lake_levels, lakemalawi_level, date)
+lake_levels$date<-as.POSIXct(lake_levels$date,format="%Y-%m-%d")
+lake_levels = pad(lake_levels)
+lake_levels <- zoo(lake_levels$lakemalawi_level, lake_levels$date)
+lake_levels<- na.interpolation(lake_levels, option = "linear")
+lake_levels = fortify.zoo(lake_levels)
+
+#Define data variables
+lake_levels$year=year(lake_levels$Index)
+lake_levels$month=month(lake_levels$Index)
+lake_levels$day=day(lake_levels$Index)
+
+#2) Import historical data for precipitations (CHIRPS) over the entire Shire river basin
+source_python("Earth_engine_CHIRPS_2010_2018.py")
+chirps = read.csv("chirps_rainfall_malawi_2000_2018.csv")
+
+#Restructure data and add date variables
+chirps = dplyr::select(chirps, matches("X2|name"))
+chirps$id=1
+chirps_long = merged.stack(chirps, var.stubs = "X", sep = "var.stubs")
+varnames<-c("name", "date", "precipitations_chirps")
+setnames(chirps_long,names(chirps_long),varnames )
+chirps_long <- dplyr::select(chirps_long, precipitations_chirps, date)
+chirps_long$date<-as.POSIXct(chirps_long$date,format="%Y%m%d")
+chirps_long$year=year(chirps_long$date)
+chirps_long$month=month(chirps_long$date)
+chirps_long$day=day(chirps_long$date)
+
+#3) Import precipitation anomalies over malawi
+source_python("moisture.py")
+moisture = read.csv("moisture.csv")
+moisture = dplyr::select(moisture, matches("X|NASA"))
+
+#Restructure data, perform linear interpolation, and add date variables
+moisture_long = merged.stack(moisture, var.stubs = "NASA_USDA_SM", sep = "var.stubs")
+varnames<-c("X", "date", "moisture_NASA")
+setnames(moisture_long,names(moisture_long),varnames )
+moisture_long <- as.data.frame(dplyr::select(moisture_long, moisture_NASA, date))
+moisture_long$date = as.Date(substr(moisture_long$date, 1, 8), format="%Y%m%d")
+
+moisture_long = moisture_long %>%
+  dplyr::mutate(date = as.Date(date)) %>%
+  complete(date = seq.Date(min(date), max(date), by="day"))
+
+moisture_long <- zoo(moisture_long$moisture_NASA, moisture_long$date)
+moisture_long<- na.interpolation(moisture_long, option = "linear")
+moisture_long = fortify.zoo(moisture_long)
+
+moisture_long$year=year(moisture_long$Index)
+moisture_long$month=month(moisture_long$Index)
+moisture_long$day=day(moisture_long$Index)
+
+#4) Import surface air temperature over Malawi
+source_python("Earth_engine_temperature.py")
+temperature = read.csv("average_temperature_shirebasin_1970_2018.csv")
+
+#Restructure data, perform linear interpolation, and add date variables
+temperature$id=1
+temperature = merged.stack(temperature, var.stubs = "X", sep = "var.stubs")
+temperature = select(temperature, X, .time_1)
+varnames = c("temp", "date")
+setnames(temperature,names(temperature),varnames )
+temperature$date<-as.POSIXct(temperature$date,format="%Y_%m_%d")
+temperature = temperature[-1,]
+temperature <- zoo(temperature$temp, temperature$date)
+temperature<- na.interpolation(temperature, option = "linear")
+temperature = fortify.zoo(temperature)
+
+temperature$year=year(temperature$Index)
+temperature$month=month(temperature$Index)
+temperature$day=day(temperature$Index)
+
+
+#5) Import discharge and water level at 4 gauging stations 
+#2017 data
+shire_2017 <- read_excel("Shire river\\ShireRiver Flow Data\\2017-2018 shire river flow data all stations.xls")
+shire_2017$Date<-as.Date(shire_2017$Date,format='%Y\\%m\\%d')
+shire_2017_long <- melt(shire_2017, id = "Date")
+shire_2017_long_2<-shire_2017_long[grep("dis", shire_2017_long$variable), ]
+
+#1970-2015 data
+shire_1970 <- read_excel("Shire river\\ShireRiver Flow Data\\Shire at Chikwawa, Liwonde and Matope.xls", col_types = c("date", "numeric", "numeric", "numeric"))
+
+shire_1970$date<-as.Date(shire_1970$date,format='%Y\\%m\\%d')
+shire_1970_long <- melt(shire_1970, id = "date")
+
+##i987-1998 data at Zalewa
+wd = getwd()
+setwd(paste0(wd, "/Shire river/ShireRiver Flow Data/Zalewa"))
+
+fun<-function(X){
+  data<-readr::read_tsv(X)
+  
+  data<-data %>%
+    dplyr::select(-X2, -X15) %>%
+    dplyr::rename(day = X1) 
+  
+  data<-data %>%
+    tidyr::gather(key = month, value = value, -day)
+}
+
+Zalewa<-lapply(list.files(pattern = "\\.txt$"), fun)
+names(Zalewa)<-c(list.files(pattern = "\\.txt$"))
+
+Zalewa<-rbindlist(Zalewa, idcol=TRUE)
+Zalewa<-na.omit(Zalewa)
+
+Zalewa$year<-1
+
+Zalewa[1:61,]$year<-1987
+Zalewa[62:427,]$year<-1988
+Zalewa[428:792,]$year<-1989
+Zalewa[792:1157,]$year<-1990
+Zalewa[1158:1522,]$year<-1991
+Zalewa[1523:1888,]$year<-1992
+Zalewa[1889:2253,]$year<-1993
+Zalewa[2254:2618,]$year<-1994
+Zalewa[2619:2983,]$year<-1995
+Zalewa[2984:3349,]$year<-1996
+Zalewa[3350:3714,]$year<-1997
+Zalewa[3715:4018,]$year<-1998
+
+Zalewa$month<-match(Zalewa$month,month.abb)
+Zalewa$date<-as.Date(paste(Zalewa$day, Zalewa$month, Zalewa$year, sep = "\\"),format='%d\\%m\\%Y')
+
+##2017-18 data at Liwonde
+daily_fucntion <- function(X){
+  data.table::fread(X, skip = 4)
+} 
+
+daily<-daily_fucntion(paste0(wd, "\\Shire river\\ShireRiver Flow Data\\Liwonde.txt"))
+Liwonde_201718<-data.frame(substr(daily$V1, 1, 10), daily$V2)
+colnames(Liwonde_201718)<-c("date", "discharge")
+Liwonde_201718$date<-as.Date(Liwonde_201718$date,format='%d.%m.%Y')
+
+#Merge
+write.csv(Liwonde_201718, "Liwonde_201718.csv")
+write.csv(Zalewa, "Zalewa.csv")
+write.csv(shire_2017_long_2, "shire_2017_long_2.csv")
+write.csv(shire_1970_long, "shire_1970_long.csv")
+
+discharge_shire<-read.csv("shire_1970_long.csv")
+discharge_shire$date<-as.Date(discharge_shire$date,format='%Y-%m-%d')
+dis<-discharge_shire[discharge_shire$date > as.Date("1970-01-01"),]
+
+discharge_shire<-read.csv("discharge_shire.csv")
+
+mmm<-function(X){
+  max(X, na.rm=TRUE)
+}
+
+jj_spread <- dcast(discharge_shire, Date ~ variable, value.var="value", fun.aggregate=mmm)
+is.na(jj_spread) <- jj_spread == ("-Inf")
+river_discharge_stations <- jj_spread[-1, ]
+
+river_discharge_stations$Date = as.Date(river_discharge_stations$Date, format="%d/%m/%Y")
+names(river_discharge_stations)[names(river_discharge_stations) == 'Date'] <- 'date'
+
+river_discharge_stations$year=year(river_discharge_stations$date)
+river_discharge_stations$month=month(river_discharge_stations$date)
+river_discharge_stations$day=day(river_discharge_stations$date)
+
+
+#6) Import generation at hydropower schemes from EGENCO
+setwd(paste0(wd, "\\EGENCO data"))
+
+sheets <- readxl::excel_sheets("EGENCO Daily Generation Data.xlsx")
+lst <- lapply(sheets[1:7], function(sheet) 
+  readxl::read_excel("EGENCO Daily Generation Data.xlsx", sheet = sheet, col_types=c("date", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric"))
+)
+names(lst) <- sheets[1:7]
+
+egencodata = do.call(rbind, lst)
+
+egencodata$Date = as.Date(egencodata$Date, format = "%Y-%m-%d")
+egencodata = egencodata[complete.cases(egencodata[ , 2:6]),]   
+
+#Total generation variables
+egencodata$total=rowSums(egencodata[2:7], na.rm = TRUE)
+
+#Date variables
+egencodata$year=year(egencodata$Date)
+egencodata$month=month(egencodata$Date)
+egencodata$day=day(egencodata$Date)
+
+#7) Import drought database  data(SPEI index)
+#7.1. import spei, shapefile, and extract over Shire river basin
+#try different scales and see which correlates better with lake level and discharge
+setwd(wd)
+
+#03
+ncfile03 <- "spei03.nc"
+spei03 <- brick(ncfile03)
+
+shire_basin<-readOGR("Shire river\\shirebasin\\shirebasin.shp")
+spei03_malawi<-raster::extract(spei03, shire_basin, fun=mean, na.rm=TRUE)
+
+spei03_malawi<-melt(spei03_malawi,measure.vars=names(spei03_malawi)[2:length(names(spei03_malawi))], id.vars ="id")
+spei03_malawi$date<-substr(spei03_malawi$Var2,2,11)
+spei03_malawi$date = as.Date(spei03_malawi$date, format="%Y.%m.%d")
+
+varnames<-c("var1", "var2", "spei03", "date")
+setnames(spei03_malawi,names(spei03_malawi),varnames )
+
+spei03_malawi <- spei03_malawi %>% dplyr::select(spei03, date)
+
+#6
+ncfile06 <- "spei06.nc"
+spei06 <- brick(ncfile06)
+
+spei06_malawi<-raster::extract(spei06, shire_basin, fun=mean, na.rm=TRUE)
+
+spei06_malawi<-melt(spei06_malawi,measure.vars=names(spei06_malawi)[2:length(names(spei06_malawi))], id.vars ="id")
+spei06_malawi$date<-substr(spei06_malawi$Var2,2,11)
+spei06_malawi$date = as.Date(spei06_malawi$date, format="%Y.%m.%d")
+
+varnames<-c("var1", "var2", "spei06", "date")
+setnames(spei06_malawi,names(spei06_malawi),varnames )
+
+spei06_malawi <- spei06_malawi %>% dplyr::select(spei06, date)
+
+#12
+ncfile12 <- "spei12.nc"
+spei12 <- brick(ncfile12)
+
+spei12_malawi<-raster::extract(spei12, shire_basin, fun=mean, na.rm=TRUE)
+
+spei12_malawi<-melt(spei12_malawi,measure.vars=names(spei12_malawi)[2:length(names(spei12_malawi))], id.vars ="id")
+spei12_malawi$date<-substr(spei12_malawi$Var2,2,11)
+spei12_malawi$date = as.Date(spei12_malawi$date, format="%Y.%m.%d")
+
+varnames<-c("var1", "var2", "spei12", "date")
+setnames(spei12_malawi,names(spei12_malawi),varnames )
+
+spei12_malawi <- spei12_malawi %>% dplyr::select(spei12, date)
+
+#24
+ncfile24 <- "spei24.nc"
+spei24 <- brick(ncfile24)
+
+spei24_malawi<-raster::extract(spei24, shire_basin, fun=mean, na.rm=TRUE)
+
+spei24_malawi<-melt(spei24_malawi,measure.vars=names(spei24_malawi)[2:length(names(spei24_malawi))], id.vars ="id")
+spei24_malawi$date<-substr(spei24_malawi$Var2,2,11)
+spei24_malawi$date = as.Date(spei24_malawi$date, format="%Y.%m.%d")
+
+varnames<-c("var1", "var2", "spei24", "date")
+setnames(spei24_malawi,names(spei24_malawi),varnames )
+
+spei24_malawi <- spei24_malawi %>% dplyr::select(spei24, date)
+
+#47
+ncfile47 <- "spei47.nc"
+spei47 <- brick(ncfile47)
+
+spei47_malawi<-raster::extract(spei47, shire_basin, fun=mean, na.rm=TRUE)
+
+spei47_malawi<-melt(spei47_malawi,measure.vars=names(spei47_malawi)[2:length(names(spei47_malawi))], id.vars ="id")
+spei47_malawi$date<-substr(spei47_malawi$Var2,2,11)
+spei47_malawi$date = as.Date(spei47_malawi$date, format="%Y.%m.%d")
+
+varnames<-c("var1", "var2", "spei47", "date")
+setnames(spei47_malawi,names(spei47_malawi),varnames )
+
+spei47_malawi <- spei47_malawi %>% dplyr::select(spei47, date)
+
+#Merge SPEI at all scales
+spei_malawi = Reduce(function(x,y) merge(x,y,by="date",all=TRUE) ,list(spei03_malawi, spei06_malawi, spei12_malawi, spei24_malawi, spei47_malawi))
+spei_malawi$year=year(spei_malawi$date)
+spei_malawi = subset(spei_malawi, spei_malawi$year > 1969)
+spei_malawi$date<-as.POSIXct(spei_malawi$date,format="%Y-%m-%d")
+
+#Daily linear interpolation of SPEI monthly values
+spei_malawi = pad(spei_malawi)
+spei_malawi<- na.interpolation(spei_malawi, option = "linear")
+spei_malawi = fortify.zoo(spei_malawi)
+
+spei_malawi$year=year(spei_malawi$date)
+spei_malawi$month=month(spei_malawi$date)
+spei_malawi$day=day(spei_malawi$date)
+
+
+#8) Merge all hitherto imported dailydata
+daily = Reduce(function(x,y) merge(x,y,by=c("day", "month", "year"),all=TRUE) ,list(temperature, egencodata, spei_malawi, river_discharge_stations, moisture_long, chirps_long, lake_levels))
+daily <- subset( daily, select = -c(Index.x, Index.y, date, Date, date.x, date.y ) )
+daily = data.table(daily)
+
+#Date variables
+daily$date=as.Date(paste0(daily$year, "-", daily$month, "-", daily$day), format="%Y-%m-%d")
+daily$month=month(daily$date)
+daily$year=year(daily$date)
+daily$day=day(daily$date)
+
+#Ordering
+daily = daily[order(year, month, day)]
+
+#############
+#MODELLING#
+############
+
+#1) Create a function to create lags and leads for time-series regression analysis
+shift<-function(x,shift_by){
+  stopifnot(is.numeric(shift_by))
+  stopifnot(is.numeric(x))
+  
+  if (length(shift_by)>1)
+    return(sapply(shift_by,shift, x=x))
+  
+  out<-NULL
+  abs_shift_by=abs(shift_by)
+  if (shift_by > 0 )
+    out<-c(tail(x,-abs_shift_by),rep(NA,abs_shift_by))
+  else if (shift_by < 0 )
+    out<-c(rep(NA,abs_shift_by), head(x,-abs_shift_by))
+  else
+    out<-x
+  out
+}
+
+#Create lags and rolling sum/mean variables
+daily$lakemalawi_level_previousmonth<-shift(daily$lake_levels, -30)
+daily$lasttwodaysprecs<- rollsumr(daily$precipitations_chirps, k = 2, fill = NA)
+daily$lastt6monthsprec<- rollsumr(daily$precipitations_chirps, k = 180, fill = NA)
+daily$last3monthmois<- rollmeanr(daily$moisture_long, k = 90, fill = NA)
+daily$last3monthspei<- rollmeanr(daily$spei47, k = 90, fill = NA)
+daily$last3monthtemp<- rollmeanr(daily$temperature, k = 90, fill = NA)
+
+#2) Predict variability in Lake Malawi's water level 
+formula<-"lake_levels ~ last3monthspei + lastt6monthsprec +  last3monthtemp + last3monthmois"
+ols1<-lm(formula,data=daily)
+summary(ols1, robust=TRUE) 
+
+formula<-"lake_levels ~ last3monthspei + lastt6monthsprec +  last3monthtemp + last3monthmois + factor(month)"
+ols2<-lm(formula,data=daily)
+summary(ols2, robust=TRUE) 
+
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "Water level deviation at Lake Malawi (m)", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Predict values
+daily$lake_levels_forecasted = predict(ols2, newdata=daily)
+
+#Validate them
+formula<-"lake_levels ~ lake_levels_forecasted"
+ols2<-lm(formula,data=daily)
+summary(ols2, robust=TRUE) 
+
+#Plot predicted vs. real with abline
+formula <- y ~ x
+
+lake = ggplot(daily, aes(y=lake_levels, x=lake_levels_forecasted, colour=month))+
+  geom_point(size=2)+
+  theme_grey()+
+  xlab('Predicted (m)')+
+  ylab('Measured (m)')+
+  #ggtitle('04/2012 - 08/2018, predicting Lake Malawi with SPEI, \n cumul. precip, av.temp, and month \n over the Shire River Basin')+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(limits = c(-2, 0.5))+
+  scale_x_continuous(limits = c(-2, 0.5))+
+  stat_poly_eq(aes(label = paste(..rr.label..)), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 6)
+
+#Plot TS of predicted vs. real 
+lake_compared = ggplot()+
+  theme_grey()+
+  geom_line(data=subset(daily, daily$year>2011), aes(y=lake_levels, x=date, colour="Actual"))+
+  geom_line(data=subset(daily, daily$year>2011), aes(y=lake_levels_forecasted, x=date, colour="Predicted"))+
+  xlab('Year')+
+  ylab('Water level deviation \n at Lake Malawi (m)')+
+  scale_colour_discrete(name="Legend")
+
+p <- plot_grid(lake_compared, lake, labels=c('A', 'B'))
+title <- ggdraw() + draw_label("Water-level at Lake Malawi", fontface='bold')
+lake_combined = plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+
+ggsave(plot=lake_combined, device = "png", filename = "lake_combined.png", width = 12, height = 5, scale = 0.8)
+
+
+#3) Predict discharge at various stations on the Shire River using Lake Level and Climate Variables
+#Liwonde
+formula<-"Liwonde_dis ~ lake_levels + lasttwodaysprecs + moisture_long + last3monthspei"
+ols1<-lm(formula,data=daily)
+summary(ols1, robust=TRUE)  
+
+formula<-"Liwonde_dis ~  lake_levels + lasttwodaysprecs + moisture_long + last3monthspei + factor(month)"
+ols2<-lm(formula,data=daily)
+summary(ols2, robust=TRUE)  
+
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "Discharge at Liwonde", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Make prediction
+daily$Liwonde_dis_forecasted = predict(ols2, newdata=daily)
+
+#Matope and Zalewa
+
+daily$MatZaw_dis=ifelse(is.na(daily$Matope_dis) & !is.na(daily$Zalewa_dis), daily$Zalewa_dis, ifelse(!is.na(daily$Matope_dis) & is.na(daily$Zalewa_dis), daily$Matope_dis, ifelse(!is.na(daily$Matope_dis) & !is.na(daily$Zalewa_dis), (daily$Matope_dis + daily$Zalewa_dis)/2, NA)))
+
+#Excursus: create snapshot of data quality situation
+uno <- ggplot()+
+  geom_line(data=daily, aes(x=date, y=Liwonde_dis))+
+  xlab("Date")+
+  ylab("Discharge (m3/s)")+
+  ggtitle("Liwonde")
+
+due <- ggplot()+
+  xlab("Date")+
+  ylab("Discharge (m3/s)")+
+  ggtitle("Zalewa")+
+  geom_line(data=daily, aes(x=date, y=MatZaw_dis))
+
+tre <- ggplot()+
+  xlab("Date")+
+  ylab("Discharge (m3/s)")+
+  ggtitle("Chikwawa")+
+  geom_line(data=daily, aes(x=date, y=Chikwawa_dis))  
+
+dqs = plot_grid(uno, due, tre)  
+
+ggsave(dqs, filename="dqs.png", device="png", scale=0.5, width = 30, height = 15)
+
+#
+
+d2 = subset(daily, daily$month<10)
+
+formula<-"MatZaw_dis ~ Liwonde_dis_forecasted + lasttwodaysprecs +  moisture_long + last3monthspei"
+ols1<-lm(formula,data=d2)
+summary(ols1, robust=TRUE) 
+
+formula<-"MatZaw_dis ~ Liwonde_dis_forecasted + lasttwodaysprecs +  moisture_long + last3monthspei + factor(month)"
+ols2<-lm(formula,data=d2)
+summary(ols2, robust=TRUE) 
+
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "Discharge at Matope", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Make prediction
+d2$MatZaw_dis_forecasted = predict(ols2, newdata=d2)
+
+#Chikwawa
+formula<-"Chikwawa_dis ~ Liwonde_dis_forecasted + MatZaw_dis_forecasted + lasttwodaysprecs +  moisture_long + last3monthspei"
+ols1<-lm(formula,data=subset(d2, d2$Chikwawa_dis<1000))
+summary(ols1, robust=TRUE) 
+
+formula<-"Chikwawa_dis ~ Liwonde_dis_forecasted + MatZaw_dis_forecasted + lasttwodaysprecs +  moisture_long + last3monthspei + factor(month)"
+ols2<-lm(formula,data=subset(d2, d2$Chikwawa_dis<1000))
+summary(ols2, robust=TRUE) 
+
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "Discharge at Chikwawa", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Make prediction
+d2$Chikwawa_dis_forecasted = predict(ols2, newdata=d2)
+
+#validate predictions
+formula<-"Liwonde_dis ~ Liwonde_dis_forecasted"
+ols1<-lm(formula,data=daily)
+summary(ols1, robust=TRUE) 
+
+formula<-"MatZaw_dis ~ MatZaw_dis_forecasted"
+ols2<-lm(formula,data=d2)
+summary(ols2, robust=TRUE) 
+
+formula<-"Chikwawa_dis ~ Chikwawa_dis_forecasted"
+ols3<-lm(formula,data=d2)
+summary(ols3, robust=TRUE) 
+
+stargazer(ols1, ols2, ols3, type = "latex", dep.var.labels   = "Discharge at the Shire river (m3/s)", add.lines = list(c("Month fixed effects", "Yes", "Yes")))
+
+#Better prediction: validate by means of Nash-Sutcliffe Efficiency and Kling-Gupta Efficiency
+
+#Generate dataframes of simulated and observed
+simulated = daily$Liwonde_dis_forecasted
+observed = daily$Liwonde_dis
+
+NSE(simulated, observed, na.rm=TRUE, FUN=log, epsilon="other", epsilon.value=1)
+KGE(simulated, observed, s=c(1,1,1), na.rm=TRUE, method=c("2009", "2012"), out.type=c("single", "full"))
+
+simulated = d2$MatZaw_dis_forecasted
+observed = d2$MatZaw_dis
+
+NSE(simulated, observed, na.rm=TRUE, FUN=log, epsilon="other", epsilon.value=1)
+KGE(simulated, observed, s=c(1,1,1), na.rm=TRUE, method=c("2009", "2012"), out.type=c("single", "full"))
+
+simulated = d2$Chikwawa_dis_forecasted
+observed = d2$Chikwawa_dis
+
+NSE(simulated, observed, na.rm=TRUE, FUN=log, epsilon="other", epsilon.value=1)
+KGE(simulated, observed, s=c(1,1,1), na.rm=TRUE, method=c("2009", "2012"), out.type=c("single", "full"))
+
+#Produce an abline-type validation plot for discharge at Liwonde and Matope
+formula <- y ~ x
+
+river_liw = ggplot(daily, aes(y=Liwonde_dis, x=Liwonde_dis_forecasted, colour=month))+
+  theme_grey()+
+  geom_point(size=2)+
+  geom_abline()+
+  xlab(expression(paste("Predicted (", m^3/s, ")", sep = "")))+
+  ylab(expression(paste("Measured (", m^3/s, ")", sep = "")))+
+  #ggtitle('07/2010 - 08/2018, predicting discharge at Liwonde \n with Lake level, SPEI, cumul. precip, and month')+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(limits = c(0, 450))+
+  scale_x_continuous(limits = c(0, 450))+
+  stat_poly_eq(aes(label = paste(..rr.label..)), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 6)
+
+#Plot TS of predicted vs. real 
+river_liw_compared = ggplot()+
+  theme_grey()+
+  geom_line(data=subset(daily, daily$year>2011), aes(y=Liwonde_dis, x=date, colour="Actual"))+
+  geom_line(data=subset(daily, daily$year>2011), aes(y=Liwonde_dis_forecasted, x=date, colour="Predicted"))+
+  xlab('Year')+
+  ylab('Discharge at Liwonde \n (Shire River)')+
+  scale_colour_discrete(name="Legend")
+
+ggsave(plot=river_liw, device = "png", filename = "river_liw_predicted.png", width = 6, height = 4, scale = 1)
+ggsave(plot=river_liw_compared, device = "png", filename = "river_liw_compared.png", width = 6, height = 4, scale = 1)
+
+river_mz = ggplot(d2, aes(y=MatZaw_dis, x=MatZaw_dis_forecasted, colour=month))+
+  theme_grey()+
+  geom_point(size=2)+
+  geom_abline()+
+  xlab(expression(paste("Predicted (", m^3/s, ")", sep = "")))+
+  ylab(expression(paste("Measured (", m^3/s, ")", sep = "")))+
+  #ggtitle('07/2010 - 08/2018, predicting discharge at Liwonde \n with Lake level, SPEI, cumul. precip, and month')+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(limits = c(100, 250))+
+  scale_x_continuous(limits = c(100, 250))+
+  stat_poly_eq(aes(label = paste(..rr.label..)), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 6)
+
+#Plot TS of predicted vs. real 
+river_mz_compared = ggplot()+
+  theme_grey()+
+  geom_line(data=subset(d2, d2$year>2011), aes(y=MatZaw_dis, x=date, colour="Actual"))+
+  geom_line(data=subset(d2, d2$year>2011), aes(y=MatZaw_dis_forecasted, x=date, colour="Predicted"))+
+  xlab('Year')+
+  ylab('Discharge at Zalewa \n (Shire River)')+
+  scale_colour_discrete(name="Legend")
+
+ggsave(plot=river_mz, device = "png", filename = "river_mz_predicted.png", width = 6, height = 4, scale = 1)
+ggsave(plot=river_mz_compared, device = "png", filename = "river_mz_compared.png", width = 6, height = 4, scale = 1)
+
+river_chi = ggplot(d2, aes(y=Chikwawa_dis, x=Chikwawa_dis_forecasted, colour=month))+
+  theme_grey()+
+  geom_point(size=2)+
+  geom_abline()+
+  xlab(expression(paste("Predicted (", m^3/s, ")", sep = "")))+
+  ylab(expression(paste("Measured (", m^3/s, ")", sep = "")))+
+  #ggtitle('07/2010 - 08/2018, predicting discharge at Liwonde \n with Lake level, SPEI, cumul. precip, and month')+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(limits = c(500, 700))+
+  scale_x_continuous(limits = c(500, 700))+
+  stat_poly_eq(aes(label = paste(..rr.label..)), 
+               label.x.npc = "right", label.y.npc = 0.15,
+               formula = formula, parse = TRUE, size = 6)
+
+#Plot TS of predicted vs. real 
+river_chi_compared = ggplot()+
+  theme_grey()+
+  geom_line(data=subset(d2, d2$year>2011), aes(y=Chikwawa_dis, x=date, colour="Actual"))+
+  geom_line(data=subset(d2, d2$year>2011), aes(y=Chikwawa_dis_forecasted, x=date, colour="Predicted"))+
+  xlab('Year')+
+  ylab('Discharge at Chikwawa \n (Shire River)')+
+  scale_colour_discrete(name="Legend")
+
+ggsave(plot=river_chi, device = "png", filename = "river_chi_predicted.png", width = 6, height = 4, scale = 1)
+ggsave(plot=river_chi_compared, device = "png", filename = "river_chi_compared.png", width = 6, height = 4, scale = 1)
+
+p <- plot_grid(river_liw_compared, river_liw, river_mz_compared, river_mz, river_chi_compared, river_chi, labels=c('A', 'B', 'C', 'D', 'E', 'F'), nrow = 3, ncol = 2)
+title <- ggdraw() + draw_label("Discharge at the Shire River", fontface='bold')
+river_combined = plot_grid(title, p, ncol=1, rel_heights=c(0.1, 1))
+
+ggsave(plot=river_combined, device = "png", filename = "river_combined.png", width = 26, height = 28, scale = 0.3)
+
+#4) Import monthly capcity in operation at each plant
+inoperationcapacity <- read_excel("Other data/inoperationcapacity.xlsx")
+daily2=merge(daily, inoperationcapacity, by=c("month", "year"), all=TRUE)
+daily2 = daily2[order(year, month, day)]
+
+#Calculate total capacity in operation and the total hydropower capacity factor
+daily2$inoperationcapacity=rowSums(select(daily2, oc_Kapichira, `oc_Nkula A`, `oc_Nkula B`, oc_Tedzani))
+daily2$capfactor =  ((daily2$total/1000)/(daily2$inoperationcapacity*24))
+daily2 = daily2[!(daily2$capfactor>1)] 
+
+#Calculate capacity factor at indivdual schemes
+daily2$cf_nkula =  (((daily2$`Nkula A`+daily2$`Nkula B`)/1000)/((daily2$`oc_Nkula A`+daily2$`oc_Nkula B`)*24))
+daily2$cf_tedzani =  (((daily2$`Tedzani I&II`+daily2$`Tedzani III`)/1000)/((daily2$oc_Tedzani)*24))
+daily2$cf_kapichira =  ((daily2$Kapichira/1000)/((daily2$oc_Kapichira)*24))
+daily2 = daily2[!(daily2$cf_nkula>1)] 
+daily2 = daily2[!(daily2$cf_tedzani>1)] 
+daily2 = daily2[!(daily2$cf_kapichira>1)] 
+
+#Define DD, a measure of absolute value of deviation discharge from the long-run mean discharge
+daily2$deviation_discharge=abs(daily2$Liwonde_dis_forecasted-(mean(daily2$Liwonde_dis_forecasted, na.rm=TRUE)))
+
+#5) Assess the effect of deviations in the discharge of hydropower capacity factor
+#With generalised linear models with logit link to account for the response variable being fractional
+
+daily2$Liwonde_dis_forecasted_rel = daily2$Liwonde_dis_forecasted/median(daily2$Liwonde_dis_forecasted, na.rm=TRUE)
+
+##DD Calculated at Liwonde
+##
+
+disc_efficiency = ggplot(data=subset(daily2, daily2$capfactor<0.7))+
+  geom_point(aes(x=Liwonde_dis_forecasted, y=capfactor, colour=month), size=1.5, alpha=0.5)+
+  stat_smooth(aes(x=Liwonde_dis_forecasted, y=capfactor), method = "lm", formula = y ~ x + I(x^2), size = 1)+
+  xlab("Discharge")+
+  xlab(expression(paste("Discharge at Liwonde (", m^3/s, ")", sep = "")))+
+  ylab("Daily hydropower capacity factor")+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 0.9))
+
+ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency.png", width = 13, height = 11, scale = 0.4)
+
+library (betareg)
+betaMod1 <- betareg(capfactor ~  deviation_discharge, data = daily2) # train model. Tune 
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+betaMod2 <- betareg(capfactor ~  deviation_discharge + as.factor(month), data = daily2) # train model. Tune 
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Total monthly HCF", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Regression for indivdual schemes' capacity factors
+daily2$cf_nkula = ifelse(daily2$cf_nkula>1, 1, daily2$cf_nkula)
+daily2$cf_nkula = ifelse(daily2$cf_nkula==0, 0.0001, daily2$cf_nkula)
+
+
+betaMod1 <- betareg(cf_nkula ~  deviation_discharge, data = daily2) # train model. Tune 
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+betaMod2 <- betareg(cf_nkula ~  deviation_discharge + factor(month), data = daily2) # train model. Tune 
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Nkula", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+daily2$cf_kapichira = ifelse(daily2$cf_kapichira>1, 1, daily2$cf_kapichira)
+daily2$cf_kapichira = ifelse(daily2$cf_kapichira==0, 0.0001, daily2$cf_kapichira)
+
+betaMod1 <- betareg(cf_kapichira ~  deviation_discharge, data = daily2) # train model. Tune 
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+betaMod2 <- betareg(cf_kapichira ~  deviation_discharge + factor(month), data = daily2) # train model. Tune 
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Kapichira", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+daily2$cf_tedzani = ifelse(daily2$cf_tedzani>1, 1, daily2$cf_tedzani)
+daily2$cf_tedzani = ifelse(daily2$cf_kapichira==0, 0.0001, daily2$cf_kapichira)
+
+betaMod1 <- betareg(cf_tedzani ~  deviation_discharge, data = daily2) # train model. Tune 
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+betaMod2 <- betareg(cf_tedzani ~  deviation_discharge + factor(month), data = daily2) # train model. Tune 
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Tedzani", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#Define a measure for extreme events as droughtflood = 1 if dd > 2*sd(DD), else droughtflood=0
+daily2$droughtflood=ifelse(daily2$deviation_discharge > unname(quantile(daily2$deviation_discharge, 0.75, na.rm=TRUE)), 1, 0)
+
+#12) Assess the impact of extreme events of hydropower capacity factor
+betaMod1 <- betareg(capfactor ~  droughtflood, data = daily2) # train model. Tune 
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+betaMod2 <- betareg(capfactor ~  droughtflood + as.factor(month), data = daily2) # train model. Tune 
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Total monthly hydropower capacity factor", add.lines = list(c("Month fixed effects", "No", "Yes")))
+
+#5) import night lights data from densely populated areas (monthly VIIRS between 2014-2018) from Earth Engine Processing
+source_python("Earth_engine_NLIGHTS.py")
+#import into R and reshape
+nl_provinces = read.csv("lightts_malawi.csv") 
+nl_provinces = dplyr::select(nl_provinces, matches("01|name"))
+nl_provinces = nl_provinces[ , order(names(nl_provinces))]
+nl_provinces_long = merged.stack(nl_provinces, var.stubs = "X", sep = "var.stubs")
+nl_provinces_long$date = nl_provinces_long$.time_1
+
+#But also reshape wide and merge so as to have individual provinces
+p =  dplyr::select(nl_provinces_long, NAME_1, date, X) 
+p = tidyr::spread(p, key = NAME_1, value = X)
+p$date = as.Date(p$date, format="%Y%m%d")
+p$month=month(p$date)
+p$year=year(p$date)
+p$NTL_total=rowSums(select(p, -date))
+
+##Calculate monthly hydropower capacity factor
+daily3 = dplyr::select(daily2, total, month, inoperationcapacity, Liwonde_dis_forecasted, date, year, `Nkula A`, `Nkula B`, `Tedzani I&II`, `Tedzani III`, Kapichira, deviation_discharge, droughtflood, spei06, moisture_long) 
+daily3 = group_by(daily3, year, month) 
+daily3 = dplyr::summarise(daily3, inoperationcapacity = median(inoperationcapacity, na.rm=TRUE), Liwonde_dis_forecasted = mean(Liwonde_dis_forecasted, na.rm=TRUE), deviation_discharge_meanmonth=median(deviation_discharge, na.rm=TRUE), total=sum(total, na.rm=TRUE), `Nkula A`=sum(`Nkula A`, na.rm=TRUE), `Nkula B`=sum(`Nkula B`, na.rm=TRUE), `Tedzani I&II`=sum(`Tedzani I&II`, na.rm=TRUE), `Tedzani III` = sum(`Tedzani III`, na.rm=TRUE), Kapichira=sum(Kapichira, na.rm=TRUE), droughtflood=mean(droughtflood, na.rm=TRUE), moisture_long=mean(moisture_long, na.rm=TRUE), spei06=mean(spei06, na.rm=TRUE))
+daily3$gen=base::rowSums(daily3[ , 7:11])
+daily3$capfactor = daily3$gen / daily3$inoperationcapacity
+
+merger = merge(daily3, p, by=c("year", "month"))
+merger = data.table(merger)
+merger = merger[order(year)]
+
+
+#Calculate monthly lag variables
+merger$deviation_discharge_meanmonth_1<-shift(merger$deviation_discharge_meanmonth, -1)
+merger$deviation_discharge_meanmonth_2<-shift(merger$deviation_discharge_meanmonth, -2)
+merger$drought_1<-shift(merger$droughtflood, -1)
+merger$drought_2<-shift(merger$droughtflood, -2)
+merger$drought_3<-shift(merger$droughtflood, -3)
+
+
+#gb <- ggplot_build(disc_efficiency)
+
+disc_efficiency = ggplot(data=merger)+
+  geom_point(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000, colour=month), size=1.5, alpha=0.5)+
+  stat_smooth(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000), method = "lm", formula = y ~ x + I(x^3), size = 1, se = FALSE, fullrange = TRUE)+
+  xlab("Discharge")+
+  xlab(expression(paste("Discharge at Liwonde (", m^3/s, ")", sep = "")))+
+  ylab("Hydropower capacity factor")+
+  scale_color_continuous(name="Month")+
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
+  scale_x_continuous(limits = c(0,350))
+
+
+ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency.png", width = 13, height = 11, scale = 0.4)
+
+
+#6) Assess the impact of deviation discharge deviation on NTL radiance at the national level in 1-km pixels with > 250 inhabs.
+formula<-"log(NTL_total) ~  log(deviation_discharge_meanmonth) "
+ols1<-lm(formula,data=merger)
+summary(ols1, robust=TRUE) 
+
+
+formula<-"log(NTL_total) ~  log(deviation_discharge_meanmonth) + factor(month)"
+ols2<-lm(formula,data=merger)
+summary(ols2, robust=TRUE)
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "ln of nighttime light radiance")
+
+
+#Assess the impact of extreme events on NTL radiance at the national level in 1-km pixels with > 250 inhabs.
+formula<-"log(NTL_total) ~  droughtflood"
+ols1<-lm(formula,data=merger)
+summary(ols1, robust=TRUE) 
+
+formula<-"log(NTL_total) ~  droughtflood + factor(month)"
+ols2<-lm(formula,data=merger)
+summary(ols2, robust=TRUE) 
+
+stargazer(ols1, ols2, type = "latex", dep.var.labels   = "ln of nighttime light radiance")
+
+
+#Assess heterogeneity in impact across provinces
+funcol = function(X){ 
+  all(X != 0)
+}
+
+row_sub = apply(dplyr::select(merger, 18:45), 1, funcol)
+
+prova2 = merger[row_sub,]
+
+fu = function(X){
+  paste0("log(`", X, "`+1)", "~", "log(deviation_discharge_meanmonth) + factor(month)")
+}
+
+formula<-lapply(colnames(merger[,18:45]), fu)
+
+function_regs = function(X){
+  ols1<-lm(X,data=merger)
+}
+
+listresults = lapply(formula, function_regs)
+
+n <- 28
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+names=colnames(merger[,18:45])
+p = plot_coefs(listresults[[1]], listresults[[2]], listresults[[3]], listresults[[4]], listresults[[5]], listresults[[6]], listresults[[7]], listresults[[8]], listresults[[9]], listresults[[10]], listresults[[11]], listresults[[12]], listresults[[13]], listresults[[14]], listresults[[15]], listresults[[16]], listresults[[17]], listresults[[18]], listresults[[19]], listresults[[20]], listresults[[21]], listresults[[22]], listresults[[23]], listresults[[24]], listresults[[25]], listresults[[26]], listresults[[27]], listresults[[28]], model.names=names, coefs=c("log(deviation_discharge_meanmonth)"), legend.title="Province", point.shape = FALSE, color.class= col_vector, ci_level=0.95)
+
+p = p + theme(legend.position = "bottom") + xlab("Effect on NTL radiance") + ylab(" ")
+
+ggsave(plot=p, device="png", filename = "plot.png", scale=0.55, width = 19, height = 12)
+
+
+#Assess heterogeneity in impact across provinces for EXTREME EVENTS
+fu = function(X){
+  paste0("log(`", X, "`+1)", "~", "droughtflood + factor(month)")
+}
+
+formula<-lapply(colnames(merger[,18:45]), fu)
+
+function_regs = function(X){
+  ols1<-lm(X,data=merger)
+}
+
+listresults = lapply(formula, function_regs)
+
+n <- 28
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+names=colnames(merger[,18:45])
+p = plot_coefs(listresults[[1]], listresults[[2]], listresults[[3]], listresults[[4]], listresults[[5]], listresults[[6]], listresults[[7]], listresults[[8]], listresults[[9]], listresults[[10]], listresults[[11]], listresults[[12]], listresults[[13]], listresults[[14]], listresults[[15]], listresults[[16]], listresults[[17]], listresults[[18]], listresults[[19]], listresults[[20]], listresults[[21]], listresults[[22]], listresults[[23]], listresults[[24]], listresults[[25]], listresults[[26]], listresults[[27]], listresults[[28]], model.names=names, coefs=c("droughtflood"), legend.title="Province", point.shape = FALSE, color.class= col_vector, ci_level=0.95)
+
+p = p + theme(legend.position = "bottom") + xlab("Effect on NTL radiance") + ylab(" ")
+
+ggsave(plot=p, device="png", filename = "plot2.png", scale=0.55, width = 16, height = 12)
+
+#7) extract coefficients and create a map with the effects
+prova=data.frame(p$data$estimate, p$data$p.value, names)
+
+malawi=read_sf('Other data//gadm36_1.shp')
+malawi=subset(malawi, malawi$GID_0=="MWI")
+malawi=merge(malawi, prova, by.x="NAME_1", by.y="names")
+
+map = ggplot() + geom_sf(data = malawi, aes(fill = p.data.estimate)) + scale_y_continuous(breaks = c(-0.9, 0))
+
+ggsave(plot=map, device="png", filename = "map_NTL_effect.png", scale=0.4, width = 20, height = 12)
+
+
+#Import electfication rates from DHS
+DHS = read.csv("Other data//Parsing.csv")
+elrate_plot_effect=merge(DHS, malawi, by.x="GID_1", by.y="GID_1")
+
+#Plot effect vs. electrification rates
+effectelrates = ggplot(subset(elrate_plot_effect, elrate_plot_effect$p.data.p.value<0.1), aes(x=elaccess/100, y=p.data.estimate))+
+  theme_classic()+
+  geom_point(size=2.5)+
+  geom_smooth(method = "lm", se=FALSE)+
+  xlab('Electricity access rate (province)')+
+  ylab('Effect of discharge deviations on NTL radiance')+
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1))
+
+pg = plot_grid(p, effectelrates, labels = "AUTO")
+
+ggsave(plot=pg, device="png", filename = "effectelrates.png", scale=0.45, width = 28, height = 12)
+
+
+#8) Measure NDVI deviation (with respect to long-run mean) in irrigated cropland#
+#Merge NDVI to montly time series
+drive_download('rainfed_ndvi.csv', overwrite = TRUE)
+drive_download('irrigated_ndvi.csv', overwrite = TRUE)
+
+NDVI_irrigated = read.csv('irrigated_ndvi.csv')
+NDVI_rainfed = read.csv('rainfed_ndvi.csv')
+
+#reshape long with seq numbering
+NDVI_rainfed$id=1
+NDVI_rainfed = merged.stack(NDVI_rainfed, var.stubs = "X", sep = "var.stubs")
+NDVI_rainfed = NDVI_rainfed %>% dplyr::select(X, .time_1)
+varnames<-c("NDVI", "date")
+setnames(NDVI_rainfed,names(NDVI_rainfed),varnames )
+NDVI_rainfed = NDVI_rainfed %>% dplyr::group_by(date) %>% dplyr::summarise(NDVI = median(NDVI, na.rm=TRUE)) %>% dplyr::ungroup()
+
+#add date variable
+NDVI_rainfed$date = str_remove(NDVI_rainfed$date, "_NDVI")
+NDVI_rainfed$date = as.numeric(NDVI_rainfed$date )
+NDVI_rainfed <- NDVI_rainfed[order(NDVI_rainfed$date),] 
+NDVI_rainfed$date=seq(as.Date("2012/1/1"), by = "month", length.out = 84)
+NDVI_rainfed$month = month(NDVI_rainfed$date)
+NDVI_rainfed$year = year(NDVI_rainfed$date)
+
+NDVI_irrigated$id=1
+NDVI_irrigated = merged.stack(NDVI_irrigated, var.stubs = "X", sep = "var.stubs")
+NDVI_irrigated = NDVI_irrigated %>% dplyr::select(X, .time_1)
+varnames<-c("NDVI", "date")
+setnames(NDVI_irrigated,names(NDVI_irrigated),varnames )
+NDVI_irrigated = NDVI_irrigated %>% dplyr::group_by(date) %>% dplyr::summarise(NDVI = median(NDVI, na.rm=TRUE)) %>% dplyr::ungroup()
+
+NDVI_irrigated$date = str_remove(NDVI_irrigated$date, "_NDVI")
+NDVI_irrigated$date = as.numeric(NDVI_irrigated$date )
+NDVI_irrigated <- NDVI_irrigated[order(NDVI_irrigated$date),] 
+NDVI_irrigated$date=seq(as.Date("2012/1/1"), by = "month", length.out = 84)
+NDVI_irrigated$month = month(NDVI_irrigated$date)
+NDVI_irrigated$year = year(NDVI_irrigated$date)
+
+ndvi_merged = merge(merger, NDVI_irrigated, by=c("month", "year"))
+ndvi_merged = merge(ndvi_merged, NDVI_rainfed, by=c("month", "year"))
+
+ndvi_merged$capfactor = ndvi_merged$capfactor / 1000000
+
+# Compare impact of discharge deviation and generation on NDVI
+
+#irrigated
+ndvi_merged$NDVI.x=ndvi_merged$NDVI.x/10000
+betaMod1 <- betareg(NDVI.x ~  capfactor + log(deviation_discharge_meanmonth) + log(moisture long + 2) + spei06 + factor(month), data = ndvi_merged)
+summary (betaMod1) 
+summary(margins(betaMod1))
+
+#rainfed
+ndvi_merged$NDVI.y=ndvi_merged$NDVI.y/10000
+betaMod2 <- betareg(NDVI.y ~  capfactor + log(deviation_discharge_meanmonth) + log(moisture long + 2) + spei06 + factor(month), data = ndvi_merged)
+summary (betaMod2) 
+summary(margins(betaMod2))
+
+
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "NDVI")
+
+
+summary(margins(myglm2))
+
+#Evolution on NDVI in irrigated and rainfed
+ndviplot = ggplot()+
+  geom_line(mapping= aes(x=ndvi_merged$date.x, y=ndvi_merged$NDVI.x/10000, colour="Irrigated cropland"))+
+  geom_line(mapping= aes(x=ndvi_merged$date.x, y=ndvi_merged$NDVI.y/10000, colour="Rainfed cropland"))+
+  geom_line(mapping= aes(x=ndvi_merged$date.x, y=ndvi_merged$capfactor, colour="HCF"))+
+  scale_y_continuous(sec.axis = sec_axis(~.*1, name = "Hydropower capacity factor")) + 
+  xlab('Date')+
+  ylab('Average NDVI')+
+  scale_colour_discrete(name="Legend")
+
+ggsave(plot=ndviplot, device="png", filename = "ndviplot.png", scale=0.35, width = 20, height = 12)

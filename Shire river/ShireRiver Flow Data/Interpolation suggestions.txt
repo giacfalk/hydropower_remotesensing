@@ -1,0 +1,13 @@
+A key question. Get the best data correlated (a set of good predictors). Depending on the target variable, develop a regression model (i.e. Multiple Linear Regression, Neural Networks, Gaussian Processes). Finally, validate your equation or model and evaluate if the results are aceptable or not. Then you can fill the data for your specific case. Hope this helps & Good luck.
+
+
+If you have other stations available nearby you may interpolate data using the Voronoi tesselation or similara interpolation techniques - see
+Andersson J.C.M., Zehnder, A.J.B., Wehrli B., Yang H. 2012. Improved SWAT model performance with time-dynamic Voronoi tessellation of climatic input data in Southern Africa. J. Amer. Water Resources Association 48, 480-493, DOI: 10.11111/j.1752-1688.2011.00627.x
+
+When interpolating, consider doing it in both time as well as space to get the best result. Even some interpolation techniques are more superior than the others (say kriging for example). You may also want to built a simple stochastic model if you still got fare amount data on some months of the other years. 
+
+But if the missing data are streamflow or discharge, you should carefully do it. If there is an already existing rating curve it will be easy to estimate the missing flow data.
+
+If you have adequate numbers of complete data you can use machine learning approach to predict missing fields !
+(https://www.researchgate.net/publication/239608247_Machine_Learning_Based_Missing_Value_Imputation_Method_for_Clinical_Datasets)
+
