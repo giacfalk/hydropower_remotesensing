@@ -695,23 +695,23 @@ daily2$Liwonde_dis_forecasted_rel = daily2$Liwonde_dis_forecasted/median(daily2$
 ##DD Calculated at Liwonde
 ##
 
-disc_efficiency = ggplot(data=subset(daily2, daily2$capfactor<0.7))+
+disc_efficiency = ggplot(data=subset(daily2, daily2$capfactor<0.75))+
   geom_point(aes(x=Liwonde_dis_forecasted, y=capfactor, colour=month), size=1.5, alpha=0.5)+
   stat_smooth(aes(x=Liwonde_dis_forecasted, y=capfactor), method = "lm", formula = y ~ x + I(x^2), size = 1)+
   xlab("Discharge")+
   xlab(expression(paste("Discharge at Liwonde (", m^3/s, ")", sep = "")))+
   ylab("Daily hydropower capacity factor")+
   scale_color_continuous(name="Month")+
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 0.9))
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 0.8))
 
-ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency.png", width = 13, height = 11, scale = 0.4)
+ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency2.png", width = 15, height = 11, scale = 0.4)
 
 library (betareg)
-betaMod1 <- betareg(capfactor ~  deviation_discharge, data = daily2) # train model. Tune 
+betaMod1 <- betareg(capfactor ~  log(deviation_discharge), data = daily2) # train model. Tune 
 summary (betaMod1) 
 summary(margins(betaMod1))
 
-betaMod2 <- betareg(capfactor ~  deviation_discharge + as.factor(month), data = daily2) # train model. Tune 
+betaMod2 <- betareg(capfactor ~  log(deviation_discharge) + as.factor(month), data = daily2) # train model. Tune 
 summary (betaMod2) 
 summary(margins(betaMod2))
 
@@ -731,7 +731,7 @@ betaMod2 <- betareg(cf_nkula ~  deviation_discharge + factor(month), data = dail
 summary (betaMod2) 
 summary(margins(betaMod2))
 
-stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Nkula", add.lines = list(c("Month fixed effects", "No", "Yes")))
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly HCF at Nkula", add.lines = list(c("Month fixed effects", "No", "Yes")))
 
 daily2$cf_kapichira = ifelse(daily2$cf_kapichira>1, 1, daily2$cf_kapichira)
 daily2$cf_kapichira = ifelse(daily2$cf_kapichira==0, 0.0001, daily2$cf_kapichira)
@@ -744,7 +744,7 @@ betaMod2 <- betareg(cf_kapichira ~  deviation_discharge + factor(month), data = 
 summary (betaMod2) 
 summary(margins(betaMod2))
 
-stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Kapichira", add.lines = list(c("Month fixed effects", "No", "Yes")))
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly HCF at Kapichira", add.lines = list(c("Month fixed effects", "No", "Yes")))
 
 daily2$cf_tedzani = ifelse(daily2$cf_tedzani>1, 1, daily2$cf_tedzani)
 daily2$cf_tedzani = ifelse(daily2$cf_kapichira==0, 0.0001, daily2$cf_kapichira)
@@ -757,7 +757,7 @@ betaMod2 <- betareg(cf_tedzani ~  deviation_discharge + factor(month), data = da
 summary (betaMod2) 
 summary(margins(betaMod2))
 
-stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly hydropower capacity factor at Tedzani", add.lines = list(c("Month fixed effects", "No", "Yes")))
+stargazer(betaMod1, betaMod2, type = "latex", dep.var.labels   = "Monthly HCF at Tedzani", add.lines = list(c("Month fixed effects", "No", "Yes")))
 
 #Define a measure for extreme events as droughtflood = 1 if dd > 2*sd(DD), else droughtflood=0
 daily2$droughtflood=ifelse(daily2$deviation_discharge > unname(quantile(daily2$deviation_discharge, 0.75, na.rm=TRUE)), 1, 0)
@@ -813,17 +813,17 @@ merger$drought_3<-shift(merger$droughtflood, -3)
 #gb <- ggplot_build(disc_efficiency)
 
 disc_efficiency = ggplot(data=merger)+
-  geom_point(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000, colour=month), size=1.5, alpha=0.5)+
-  stat_smooth(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000), method = "lm", formula = y ~ x + I(x^3), size = 1, se = FALSE, fullrange = TRUE)+
+  geom_point(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000, colour=month), size=3, alpha=1)+
+  stat_smooth(aes(x=Liwonde_dis_forecasted, y=capfactor/1000000), method = "lm", formula = y ~ x + I(x^2), size = 1, se = FALSE, fullrange = TRUE)+
   xlab("Discharge")+
   xlab(expression(paste("Discharge at Liwonde (", m^3/s, ")", sep = "")))+
-  ylab("Hydropower capacity factor")+
+  ylab("Monthly total \n hydropower capacity factor")+
   scale_color_continuous(name="Month")+
   scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits = c(0,350))
 
 
-ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency.png", width = 13, height = 11, scale = 0.4)
+ggsave(plot=disc_efficiency, device = "png", filename = "disc_efficiency.png", width = 16, height = 11, scale = 0.4)
 
 
 #6) Assess the impact of deviation discharge deviation on NTL radiance at the national level in 1-km pixels with > 250 inhabs.
@@ -877,9 +877,8 @@ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_co
 names=colnames(merger[,18:45])
 p = plot_coefs(listresults[[1]], listresults[[2]], listresults[[3]], listresults[[4]], listresults[[5]], listresults[[6]], listresults[[7]], listresults[[8]], listresults[[9]], listresults[[10]], listresults[[11]], listresults[[12]], listresults[[13]], listresults[[14]], listresults[[15]], listresults[[16]], listresults[[17]], listresults[[18]], listresults[[19]], listresults[[20]], listresults[[21]], listresults[[22]], listresults[[23]], listresults[[24]], listresults[[25]], listresults[[26]], listresults[[27]], listresults[[28]], model.names=names, coefs=c("log(deviation_discharge_meanmonth)"), legend.title="Province", point.shape = FALSE, color.class= col_vector, ci_level=0.95)
 
-p = p + theme(legend.position = "bottom") + xlab("Effect on NTL radiance") + ylab(" ")
-
-ggsave(plot=p, device="png", filename = "plot.png", scale=0.55, width = 19, height = 12)
+p1 = p + theme_gray() + theme(legend.position = "none") + xlab("Effect of DD on NTL radiance") + theme(
+  axis.text.y = element_blank())
 
 
 #Assess heterogeneity in impact across provinces for EXTREME EVENTS
@@ -901,9 +900,21 @@ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_co
 names=colnames(merger[,18:45])
 p = plot_coefs(listresults[[1]], listresults[[2]], listresults[[3]], listresults[[4]], listresults[[5]], listresults[[6]], listresults[[7]], listresults[[8]], listresults[[9]], listresults[[10]], listresults[[11]], listresults[[12]], listresults[[13]], listresults[[14]], listresults[[15]], listresults[[16]], listresults[[17]], listresults[[18]], listresults[[19]], listresults[[20]], listresults[[21]], listresults[[22]], listresults[[23]], listresults[[24]], listresults[[25]], listresults[[26]], listresults[[27]], listresults[[28]], model.names=names, coefs=c("droughtflood"), legend.title="Province", point.shape = FALSE, color.class= col_vector, ci_level=0.95)
 
-p = p + theme(legend.position = "bottom") + xlab("Effect on NTL radiance") + ylab(" ")
+formatter10 <- function(x){ 
+  x*10
+}
 
-ggsave(plot=p, device="png", filename = "plot2.png", scale=0.55, width = 16, height = 12)
+p2 = p + theme_gray() + theme(legend.position = "none") + xlab("Effect of disch. extremes NTL radiance") + theme(
+  axis.text.y = element_blank()) + scale_x_continuous(labels = formatter10)
+
+legend =  p + theme_gray() + theme(legend.position = "bottom")
+
+p = cowplot::plot_grid(p1, p2, labels = "AUTO")
+
+ggsave(plot=p, device="png", filename = "plot.png", scale=0.3, width = 26, height = 12)
+
+ggsave(plot=legend, device="png", filename = "legend.png", scale=0.3, width = 24, height = 12)
+
 
 #7) extract coefficients and create a map with the effects
 prova=data.frame(p$data$estimate, p$data$p.value, names)
