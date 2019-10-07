@@ -1,8 +1,5 @@
 import ee, datetime
 import pandas as pd
-import geos
-import gdal
-import fiona
 import geopandas as gpd
 import matplotlib.dates as mdates
 from IPython.display import Image
@@ -33,7 +30,7 @@ def fc2df(fc):
 
 ee.Initialize()
 
-collection = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY').filterDate('2010-01-01', '2018-09-01').select('precipitation');
+collection = ee.ImageCollection('MODIS/006/MOD11A1').filterDate('2010-01-01', '2019-01-01').select('LST_Day_1km');
 
 def function(im):
     return im.rename([im.get("system:index")])
@@ -57,4 +54,4 @@ lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean()
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/chirps_rainfall_malawi_2010_2018.csv")
+lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/average_temperature_shirebasin_2010_2018.csv")

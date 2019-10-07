@@ -30,7 +30,7 @@ def fc2df(fc):
 
 ee.Initialize()
 
-collection = ee.ImageCollection('MODIS/006/MOD11A1').filterDate('2012-01-01', '2019-01-01').select('LST_Day_1km');
+collection = ee.ImageCollection('MODIS/006/MOD11A1').filterDate('2000-01-01', '2010-01-01').select('LST_Day_1km');
 
 def function(im):
     return im.rename([im.get("system:index")])
@@ -54,4 +54,4 @@ lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean()
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/average_temperature_shirebasin_1970_2018.csv")
+lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/average_temperature_shirebasin_2000_2010.csv")

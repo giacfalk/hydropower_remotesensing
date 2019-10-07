@@ -33,7 +33,7 @@ def fc2df(fc):
 
 ee.Initialize()
 
-collection = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY').filterDate('2010-01-01', '2018-09-01').select('precipitation');
+collection = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY').filterDate('2000-01-01', '2010-01-01').select('precipitation');
 
 def function(im):
     return im.rename([im.get("system:index")])
@@ -57,4 +57,4 @@ lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean()
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/chirps_rainfall_malawi_2010_2018.csv")
+lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/chirps_rainfall_malawi_2000_2010.csv")
