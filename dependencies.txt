@@ -1,0 +1,15 @@
+R
+
+install.packages("raster","margins","sf","eia", "cowplot","ggsci","gridExtra","googledrive","RColorBrewer","jtools","tidyverse","foreign","frm","sandwich","lmtest","ggpmisc","estimatr"
+"readr","splitstackshape","lfstat","wbstats","Amelia","padr","zoo","hydroGOF","imputeTS","hddtools","lfstat","ggplot2","plotly","reshape2"
+"data.table","tidyverse","stargazer","lubridate","reshape2","readxl","fields","chron","ncdf4","raster","robustbase","rgdal","raster")
+
+Python
+
+pip install https://download.lfd.uci.edu/pythonlibs/g5apjq5m/GDAL-2.4.1-cp37-cp37m-win_amd64.whl
+pip install https://download.lfd.uci.edu/pythonlibs/g5apjq5m/Fiona-1.8.6-cp37-cp37m-win_amd64.whl
+pip install https://download.lfd.uci.edu/pythonlibs/g5apjq5m/Shapely-1.6.4.post2-cp37-cp37m-win_amd64.whl
+pip install https://download.lfd.uci.edu/pythonlibs/g5apjq5m/geopandas-0.6.0-py2.py3-none-any.whl
+pip install https://download.lfd.uci.edu/pythonlibs/g5apjq5m/rasterio-1.0.24+gdal24-cp37-cp37m-win_amd64.whl
+
+pip instal earthengine-api pandas geos matplotlib IPython scikit-image
