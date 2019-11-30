@@ -1,5 +1,8 @@
 import ee, datetime
 import pandas as pd
+import geos
+import gdal
+import fiona
 import geopandas as gpd
 import matplotlib.dates as mdates
 from IPython.display import Image
@@ -54,4 +57,4 @@ lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean()
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/average_temperature_shirebasin_2010_2018.csv")
+lightsum.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/average_temperature_shirebasin_2010_2018.csv")

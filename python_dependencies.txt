@@ -1,0 +1,12 @@
+The following dependencies are required to successfully operate Python scripts
+
+earthengine-api
+pandas
+geos
+gdal
+fiona
+geopandas
+matplotlib
+IPython
+shapely
+skimage-kit

@@ -33,15 +33,14 @@ def fc2df(fc):
 
 ee.Initialize()
 
-collection = ee.ImageCollection('MODIS/006/MOD11A1').filterDate('2000-01-01', '2010-01-01').select('LST_Day_1km');
+imageCollection = ee.ImageCollection('NASA_USDA/HSL/soil_moisture').filterDate('1992-09-01', '2018-09-01').select('ssma');
 
 def function(im):
     return im.rename([im.get("system:index")])
 
-arr = collection.map(function)
+arr = imageCollection.map(function)
 
-collection = arr
-
+imageCollection = arr
 
 def stackCollection(collection):
     first = ee.Image(collection.first()).select([])
@@ -49,12 +48,12 @@ def stackCollection(collection):
         return ee.Image(previous).addBands(image)
     return ee.Image(collection.iterate(appendBands, first))
 
-stacked = stackCollection(collection)
+stacked = stackCollection(imageCollection)
 
 Countries = ee.FeatureCollection('users/giacomofalchetta/shirebasin')
 
-lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean())
+moisture = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean())
 
-lightsum = fc2df(lightsum)
+moisture = fc2df(moisture)
 
-lightsum.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/average_temperature_shirebasin_2000_2010.csv")
+moisture.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/average_moisture_shirebasin_1992_2018.csv")

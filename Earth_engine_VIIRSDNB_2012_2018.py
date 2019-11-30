@@ -33,15 +33,36 @@ def fc2df(fc):
 
 ee.Initialize()
 
-collection = ee.ImageCollection('MODIS/006/MOD11A1').filterDate('2000-01-01', '2010-01-01').select('LST_Day_1km');
+collection = ee.ImageCollection('NOAA/VIIRS/DNB/MONTHLY_V1/VCMSLCFG').filterDate('2012-01-01', '2017-01-01').select('avg_rad')
+
+pop = ee.Image('users/giacomofalchetta/LandScanGlobal2017')
 
 def function(im):
     return im.rename([im.get("system:index")])
 
-arr = collection.map(function)
+collection = collection.map(function)
 
-collection = arr
+def conditional(image):
+	image = image.mask(pop.gt(250))
+	return image.mask(image.gt(5))
+	
 
+collection = collection.map(conditional)
+
+collection2 = ee.ImageCollection('NOAA/VIIRS/DNB/MONTHLY_V1/VCMSLCFG').filterDate('2017-01-01', '2019-01-01').select('avg_rad')
+
+def function(im):
+    return im.rename([im.get("system:index")])
+
+collection2 = collection2.map(function)
+
+def conditional(image):
+	image = image.subtract(0.15).mask(pop.gt(250))
+	return image.mask(image.gt(5))
+
+collection2 = collection2.map(conditional)
+
+collection = collection.merge(collection2)
 
 def stackCollection(collection):
     first = ee.Image(collection.first()).select([])
@@ -51,10 +72,11 @@ def stackCollection(collection):
 
 stacked = stackCollection(collection)
 
-Countries = ee.FeatureCollection('users/giacomofalchetta/shirebasin')
+Countries = ee.FeatureCollection('users/giacomofalchetta/gadm36_1').filter(ee.Filter.Or(ee.Filter.eq('GID_0', 'MWI')))
 
-lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean())
+lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.sum())
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/average_temperature_shirebasin_2000_2010.csv")
+lightsum.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/viirs_dnb_2012_2018.csv")
+

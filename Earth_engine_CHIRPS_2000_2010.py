@@ -57,4 +57,4 @@ lightsum = stacked.reduceRegions(collection=Countries, reducer=ee.Reducer.mean()
 
 lightsum = fc2df(lightsum)
 
-lightsum.to_csv("D:\OneDrive - FONDAZIONE ENI ENRICO MATTEI\Visiting IIASA\hydropower_remotesensing/chirps_rainfall_malawi_2000_2010.csv")
+lightsum.to_csv("C:\\Users\\Falchetta\\OneDrive - FONDAZIONE ENI ENRICO MATTEI\\Visiting IIASA\\hydropower_remotesensing/chirps_rainfall_malawi_2000_2010.csv")
